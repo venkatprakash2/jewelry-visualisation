@@ -1,0 +1,7 @@
+{
+  "name": "GRT Jewellers Virtual Try-On",
+  "description": "Interactive mobile virtual try-on experience for GRT Jewellers with catalog lookup by product code, camera capture, and realistic jewelry overlay.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
