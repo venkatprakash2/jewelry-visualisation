@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { JewelryItem, CustomerPhoto, BodyPartTarget } from './types';
 import { JEWELRY_CATALOG } from './data/jewelryCatalog';
 import { SAMPLE_PORTRAITS } from './data/samplePhotos';
@@ -12,6 +12,7 @@ import { CompleteTheLook } from './components/CompleteTheLook';
 import { SelfieModal } from './components/SelfieModal';
 import { AIStylistModal } from './components/AIStylistModal';
 import { CustomOrnamentModal } from './components/CustomOrnamentModal';
+import { loadCustomItems, saveCustomItem } from './utils/customCatalog';
 
 export default function App() {
   // Catalog & selection
@@ -28,6 +29,7 @@ export default function App() {
   const [selfieModalType, setSelfieModalType] = useState<BodyPartTarget>('face');
   const [isStylistOpen, setIsStylistOpen] = useState(false);
   const [isCustomOrnamentOpen, setIsCustomOrnamentOpen] = useState(false);
+  useEffect(() => { loadCustomItems().then(items => setCatalog(previous => [...items, ...previous.filter(item => !items.some(saved => saved.id === item.id))])).catch(() => undefined); }, []);
 
   // When an ornament is selected
   const handleSelectOrnament = (item: JewelryItem) => {
@@ -62,6 +64,7 @@ export default function App() {
 
   const handleAddCustomOrnament = (newItem: JewelryItem) => {
     setCatalog((prev) => [newItem, ...prev]);
+    saveCustomItem(newItem).catch(() => undefined);
     handleSelectOrnament(newItem);
   };
 

@@ -1,20 +1,9 @@
-export type JewelryCategory =
-  | 'necklace'
-  | 'choker'
-  | 'earrings'
-  | 'bangles'
-  | 'ring'
-  | 'maang_tikka'
-  | 'nose_pin';
-
+export type JewelryCategory = 'necklace' | 'choker' | 'earrings' | 'bangles' | 'ring' | 'maang_tikka' | 'nose_pin';
 export type BodyPartTarget = 'face' | 'hand';
-
-export interface JewelryPlacement {
-  xPercent: number; // 0 - 100
-  yPercent: number; // 0 - 100
-  scale: number; // relative multiplier (e.g. 1.0)
-  rotation: number; // degrees (-180 to 180)
-}
+export interface Point { x: number; y: number; }
+export interface JewelryPlacement { xPercent: number; yPercent: number; scale: number; rotation: number; }
+export interface JewelryAnchors { primary: Point; secondary?: Point; rigidRegion?: { top: number; bottom: number }; }
+export interface JewelryAsset { anchors: JewelryAnchors; dimensions?: { widthMm: number; heightMm: number; estimated: boolean }; renderMode?: 'texture' | 'procedural-3d'; attachment?: Point; earringLayout?: 'pair' | 'single'; }
 
 export interface JewelryItem {
   id: string;
@@ -35,6 +24,7 @@ export interface JewelryItem {
   isBestseller?: boolean;
   isNewArrival?: boolean;
   matchingCodes?: string[]; // Codes of coordinating ornaments to complete the bridal/festive set
+  asset?: JewelryAsset;
 }
 
 export interface CompleteTheLookRecommendation {
@@ -55,37 +45,18 @@ export interface CustomerPhoto {
   isSample?: boolean;
 }
 
-export interface TryOnSettings {
-  xOffset: number; // -100 to 100
-  yOffset: number; // -100 to 100
-  overrideXPercent?: number; // 0 to 100
-  overrideYPercent?: number; // 0 to 100
-  overrideWidthRatio?: number; // 0.1 to 0.7
-  scale: number; // 0.3 to 2.5
-  rotation: number; // -180 to 180
-  opacity: number; // 0.1 to 1.0
-  blendMode: GlobalCompositeOperation;
-  goldLuster: number; // 0.5 to 1.5
-  shadowIntensity: number; // 0 to 1
-  earringSeparation?: number; // for dual earrings
-  visibleEar?: 'left' | 'right' | 'both';
-  landmarkDetected?: string;
-  // Self-aware 3D Draping & Size Ratio parameters
-  wrapOcclusionEnabled: boolean;
-  sizeRatio: number; // 1.0 = calibrated physical proportion
-  drapeCurvature: number; // Gravitational catenary curve factor for necklace
-  fingerOcclusionWidth: number; // Width of finger masking the back of the ring
-  neckContourWidth: number; // Width of neck masking back necklace chains
-  aiBiometrics?: {
-    scaleRatio: number;
-    neckWidthRatio?: number;
-    fingerDiameterRatio?: number;
-    wristWidthRatio?: number;
-    drapeAngle?: number;
-    occlusionType: 'neck_drape' | 'finger_wrap' | 'wrist_wrap' | 'ear_hang' | 'forehead_rest';
-    landmark: string;
-  };
+export type TrackingState = 'tracking' | 'adjustment-needed' | 'unavailable';
+export interface BodyAnalysis {
+  source: { width: number; height: number; mirrored: boolean };
+  target: BodyPartTarget; status: TrackingState;
+  anchors: Partial<Record<JewelryCategory, JewelryAnchors>>;
+  timestamp: number; message: string;
+  /** Image-space landmarks, normalized independently by image width and height. */
+  landmarks?: (Point & { z?: number })[];
+  wristEdges?: { primary: Point; secondary: Point };
 }
+export interface OrnamentTransform { id: string; x: number; y: number; scale: number; rotation: number; opacity: number; visible: boolean; }
+export interface TryOnSettings extends OrnamentTransform { goldLuster: number; shadowIntensity: number; }
 
 export interface AIStylingFeedback {
   recommendation: string;

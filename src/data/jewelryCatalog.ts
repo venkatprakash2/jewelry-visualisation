@@ -29,6 +29,7 @@ export const JEWELRY_CATALOG: JewelryItem[] = [
       rotation: 0,
     },
     bodyPartTarget: 'face',
+    asset: { anchors: { primary: { x: .5, y: .72 }, rigidRegion: { top: .43, bottom: 1 } }, dimensions: { widthMm: 170, heightMm: 220, estimated: true } },
     isBestseller: true,
     matchingCodes: ['GRT-ER-2041', 'GRT-BG-3088', 'GRT-MT-7015'],
   },
@@ -52,6 +53,7 @@ export const JEWELRY_CATALOG: JewelryItem[] = [
       rotation: 0,
     },
     bodyPartTarget: 'face',
+    asset: { anchors: { primary: { x: .5, y: .61 }, rigidRegion: { top: .42, bottom: 1 } }, dimensions: { widthMm: 140, heightMm: 80, estimated: true } },
     isNewArrival: true,
     matchingCodes: ['GRT-NK-1049', 'GRT-ER-2041', 'GRT-MT-7015'],
   },
@@ -75,6 +77,7 @@ export const JEWELRY_CATALOG: JewelryItem[] = [
       rotation: 0,
     },
     bodyPartTarget: 'face',
+    asset: { attachment: { x: .5, y: .2 }, earringLayout: 'pair', anchors: { primary: { x: .27, y: .47 }, secondary: { x: .73, y: .47 } }, dimensions: { widthMm: 26, heightMm: 48, estimated: true } },
     isBestseller: true,
     matchingCodes: ['GRT-NK-1049', 'GRT-CH-6022', 'GRT-MT-7015'],
   },
@@ -98,6 +101,7 @@ export const JEWELRY_CATALOG: JewelryItem[] = [
       rotation: 0,
     },
     bodyPartTarget: 'hand',
+    asset: { anchors: { primary: { x: .5, y: .56 } }, dimensions: { widthMm: 62, heightMm: 62, estimated: true }, renderMode: 'procedural-3d' },
     matchingCodes: ['GRT-NK-1049', 'GRT-RG-5012'],
   },
   {
@@ -120,6 +124,7 @@ export const JEWELRY_CATALOG: JewelryItem[] = [
       rotation: -4,
     },
     bodyPartTarget: 'hand',
+    asset: { anchors: { primary: { x: .5, y: .45 } }, dimensions: { widthMm: 18, heightMm: 22, estimated: true }, renderMode: 'procedural-3d' },
     matchingCodes: ['GRT-BG-3088'],
   },
   {
@@ -142,6 +147,7 @@ export const JEWELRY_CATALOG: JewelryItem[] = [
       rotation: 0,
     },
     bodyPartTarget: 'face',
+    asset: { anchors: { primary: { x: .5, y: .22 } }, dimensions: { widthMm: 30, heightMm: 100, estimated: true } },
     matchingCodes: ['GRT-NK-1049', 'GRT-CH-6022', 'GRT-ER-2041'],
   },
   {
@@ -164,6 +170,7 @@ export const JEWELRY_CATALOG: JewelryItem[] = [
       rotation: 0,
     },
     bodyPartTarget: 'face',
+    asset: { anchors: { primary: { x: .5, y: .76 }, rigidRegion: { top: .5, bottom: 1 } }, dimensions: { widthMm: 190, heightMm: 260, estimated: true } },
     matchingCodes: ['GRT-CH-6022', 'GRT-ER-2041'],
   },
 ];

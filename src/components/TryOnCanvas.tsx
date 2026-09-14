@@ -1,771 +1,137 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import {
-  JewelryItem,
-  CustomerPhoto,
-  TryOnSettings,
-  BodyPartTarget,
-} from '../types';
-import { getJewelryCutoutCanvas, getSingleEarringCanvas } from '../utils/imageUtils';
-import {
-  renderNecklace3DDrape,
-  renderRingFingerWrap,
-  renderBangleWristWrap,
-} from '../utils/drapeEngine';
-import {
-  ZoomIn,
-  ZoomOut,
-  RefreshCcw,
-  Sparkles,
-  Download,
-  SplitSquareVertical,
-  Camera,
-  Layers,
-  Sliders,
-  Check,
-} from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Camera, Download, Layers, RefreshCcw, SlidersHorizontal, SplitSquareVertical, Video, VideoOff, ZoomIn, ZoomOut } from 'lucide-react';
+import { BodyAnalysis, BodyPartTarget, CustomerPhoto, JewelryItem, JewelryAnchors, JewelryCategory, OrnamentTransform, Point, TrackingState } from '../types';
+import { analyseBody } from '../utils/vision';
+import { TryOnRenderer } from '../utils/renderer';
+import { viewportToPhoto } from '../utils/fitting';
 
-interface TryOnCanvasProps {
-  photo: CustomerPhoto;
-  ornament: JewelryItem;
-  layeredOrnaments?: JewelryItem[];
-  targetCategory: BodyPartTarget;
-  onOpenSelfieModal: () => void;
-}
+interface Props { photo: CustomerPhoto; ornament: JewelryItem; layeredOrnaments?: JewelryItem[]; targetCategory: BodyPartTarget; onOpenSelfieModal: () => void; }
+const noLayers: JewelryItem[]=[];
+const defaultTransform = (item: JewelryItem): OrnamentTransform => ({ id: item.id, x: 0, y: 0, scale: 1, rotation: 0, opacity: 1, visible: true });
 
-export const TryOnCanvas: React.FC<TryOnCanvasProps> = ({
-  photo,
-  ornament,
-  layeredOrnaments = [],
-  targetCategory,
-  onOpenSelfieModal,
-}) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  // Try-on positioning with self-aware 3D draping & anatomical size ratio
-  const [settings, setSettings] = useState<TryOnSettings>({
-    xOffset: 0,
-    yOffset: 0,
-    scale: 1.0,
-    rotation: 0,
-    opacity: 1.0,
-    blendMode: 'source-over',
-    goldLuster: 1.05,
-    shadowIntensity: 0.45,
-    earringSeparation: 140,
-    visibleEar: 'left',
-    landmarkDetected: undefined,
-    // 3D Draping & Size Ratio Parameters
-    wrapOcclusionEnabled: true,
-    sizeRatio: 1.0,
-    drapeCurvature: ornament.category === 'necklace' ? 12 : ornament.category === 'choker' ? 6 : 0,
-    fingerOcclusionWidth: 14,
-    neckContourWidth: 32,
-  });
-
-  const [isComparingSplit, setIsComparingSplit] = useState(false);
-  const [splitPosition, setSplitPosition] = useState(50);
-  const [isDraggingOrnament, setIsDraggingOrnament] = useState(false);
-  const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isAiPositioning, setIsAiPositioning] = useState(false);
-  const [aiStatusMsg, setAiStatusMsg] = useState<string | null>(null);
-  const [showTuningDrawer, setShowTuningDrawer] = useState(false);
-
-  // Trigger AI Auto-Placement with Computer Vision Biometric Calibration
-  const triggerAiAutoPlacement = useCallback(async (itemToPlace: JewelryItem) => {
-    setIsAiPositioning(true);
-    try {
-      const res = await fetch('/api/tryon/auto-place', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerImageBase64: photo.url,
-          category: itemToPlace.category,
-          selfieType: targetCategory,
-          ornamentCode: itemToPlace.code,
-          ornamentName: itemToPlace.name,
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        // Save detected biometric coordinates and scale directly into settings
-        const targetXPercent = typeof data.xPercent === 'number' ? data.xPercent : itemToPlace.defaultPlacement.xPercent;
-        const targetYPercent = typeof data.yPercent === 'number' ? data.yPercent : itemToPlace.defaultPlacement.yPercent;
-        const targetWidthRatio = typeof data.widthRatio === 'number' ? data.widthRatio : undefined;
-
-        setSettings((prev) => ({
-          ...prev,
-          xOffset: 0,
-          yOffset: 0,
-          overrideXPercent: targetXPercent,
-          overrideYPercent: targetYPercent,
-          overrideWidthRatio: targetWidthRatio,
-          scale: 1.0,
-          rotation: typeof data.rotation === 'number' ? data.rotation : itemToPlace.defaultPlacement.rotation,
-          sizeRatio: typeof data.sizeRatio === 'number' ? data.sizeRatio : 1.0,
-          drapeCurvature: typeof data.drapeCurvature === 'number' ? data.drapeCurvature : prev.drapeCurvature,
-          neckContourWidth: typeof data.neckContourWidth === 'number' ? data.neckContourWidth : prev.neckContourWidth,
-          fingerOcclusionWidth: typeof data.fingerOcclusionWidth === 'number' ? data.fingerOcclusionWidth : prev.fingerOcclusionWidth,
-          visibleEar: data.visibleEar || prev.visibleEar || 'left',
-          landmarkDetected: data.landmarkFound,
-          wrapOcclusionEnabled: true,
-        }));
-
-        setAiStatusMsg(`AI Biometric Fit: ${data.landmarkFound || 'Suprasternal notch & collarbone contour'}`);
-        setTimeout(() => setAiStatusMsg(null), 3500);
-      }
-    } catch {
-      // Fallback to calibrated default
-      setSettings((prev) => ({
-        ...prev,
-        xOffset: 0,
-        yOffset: 0,
-        overrideXPercent: itemToPlace.defaultPlacement.xPercent,
-        overrideYPercent: itemToPlace.defaultPlacement.yPercent,
-        overrideWidthRatio: undefined,
-        scale: itemToPlace.defaultPlacement.scale,
-        rotation: itemToPlace.defaultPlacement.rotation,
-      }));
-    } finally {
-      setIsAiPositioning(false);
-    }
-  }, [photo.url, targetCategory]);
-
-  // Reset or re-fit on ornament or photo change
-  useEffect(() => {
-    setSettings((prev) => ({
-      ...prev,
-      xOffset: 0,
-      yOffset: 0,
-      overrideXPercent: ornament.defaultPlacement.xPercent,
-      overrideYPercent: ornament.defaultPlacement.yPercent,
-      overrideWidthRatio: undefined,
-      scale: ornament.defaultPlacement.scale,
-      rotation: ornament.defaultPlacement.rotation,
-      visibleEar: 'left',
-      landmarkDetected: undefined,
-      drapeCurvature: ornament.category === 'necklace' ? 12 : ornament.category === 'choker' ? 6 : 0,
-      wrapOcclusionEnabled: true,
-      sizeRatio: 1.0,
-    }));
-  }, [ornament.id, photo.id, targetCategory]);
-
-  // Main rendering engine
-  const renderCanvas = useCallback(async () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
-    const baseImg = new Image();
-    baseImg.crossOrigin = 'anonymous';
-    baseImg.src = photo.url;
-
-    baseImg.onload = async () => {
-      const targetWidth = baseImg.naturalWidth || 600;
-      const targetHeight = baseImg.naturalHeight || 800;
-      if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
-        canvas.width = targetWidth;
-        canvas.height = targetHeight;
-      }
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      if (isComparingSplit) {
-        // Draw Original on left side
-        ctx.save();
-        ctx.beginPath();
-        const splitX = (canvas.width * splitPosition) / 100;
-        ctx.rect(0, 0, splitX, canvas.height);
-        ctx.clip();
-        ctx.drawImage(baseImg, 0, 0, canvas.width, canvas.height);
-        ctx.restore();
-
-        // Draw Try-On on right side
-        ctx.save();
-        ctx.beginPath();
-        ctx.rect(splitX, 0, canvas.width - splitX, canvas.height);
-        ctx.clip();
-        ctx.drawImage(baseImg, 0, 0, canvas.width, canvas.height);
-
-        // Draw primary ornament
-        await drawOrnamentItem(ctx, baseImg, canvas.width, canvas.height, ornament, settings, true);
-
-        // Draw layered ornaments
-        for (const item of layeredOrnaments) {
-          let customY = 0;
-          if (ornament.category === 'necklace' && item.category === 'choker') {
-            customY = -canvas.height * 0.12;
-          } else if (ornament.category === 'choker' && item.category === 'necklace') {
-            customY = canvas.height * 0.14;
-          }
-          await drawOrnamentItem(ctx, baseImg, canvas.width, canvas.height, item, {
-            ...settings,
-            scale: item.defaultPlacement.scale,
-            xOffset: 0,
-            yOffset: customY,
-          }, false);
-        }
-        ctx.restore();
-
-        // Split Divider line
-        ctx.save();
-        ctx.strokeStyle = '#D4AF37';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(splitX, 0);
-        ctx.lineTo(splitX, canvas.height);
-        ctx.stroke();
-
-        const cy = canvas.height / 2;
-        ctx.fillStyle = '#D4AF37';
-        ctx.beginPath();
-        ctx.arc(splitX, cy, 14, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#3D040C';
-        ctx.font = 'bold 12px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('⬌', splitX, cy);
-        ctx.restore();
-        return;
-      }
-
-      // Normal mode: Draw customer base photo
-      ctx.drawImage(baseImg, 0, 0, canvas.width, canvas.height);
-
-      // Draw primary ornament with 3D wrap & drape
-      await drawOrnamentItem(ctx, baseImg, canvas.width, canvas.height, ornament, settings, true);
-
-      // Draw layered ornaments
-      for (const item of layeredOrnaments) {
-        let customY = 0;
-        if (ornament.category === 'necklace' && item.category === 'choker') {
-          customY = -canvas.height * 0.12;
-        } else if (ornament.category === 'choker' && item.category === 'necklace') {
-          customY = canvas.height * 0.14;
-        }
-        await drawOrnamentItem(ctx, baseImg, canvas.width, canvas.height, item, {
-          ...settings,
-          scale: item.defaultPlacement.scale,
-          xOffset: 0,
-          yOffset: customY,
-        }, false);
-      }
+export const TryOnCanvas: React.FC<Props> = ({ photo, ornament, layeredOrnaments = noLayers, targetCategory, onOpenSelfieModal }) => {
+  const canvasRef=useRef<HTMLCanvasElement>(null),stageRef=useRef<HTMLDivElement>(null);
+  const rendererRef=useRef<TryOnRenderer|undefined>(undefined);
+  const [analysis,setAnalysis]=useState<BodyAnalysis|null>(null);
+  const [transforms,setTransforms]=useState<Record<string,OrnamentTransform>>({});
+  const [calibrations,setCalibrations]=useState<Partial<Record<JewelryCategory,JewelryAnchors>>>({});
+  const [calibrating,setCalibrating]=useState(false),[fitPoints,setFitPoints]=useState<Point[]>([]);
+  const canCalibrate=['earrings','choker','necklace','ring','bangles'].includes(ornament.category);
+  const calibrationHint=ornament.category==='earrings'?'Tap the left earlobe, then the right earlobe.':ornament.category==='ring'?'Tap the two edges of the ring finger where the band should sit.':ornament.category==='bangles'?'Tap the two edges of the wrist where the bangle should sit.':'Tap the left and right sides of the neck where the top of the ornament should sit.';
+  const [compare,setCompare]=useState(false),[split,setSplit]=useState(50),[showFit,setShowFit]=useState(false);
+  const [live,setLive]=useState(false),[liveStatus,setLiveStatus]=useState('');
+  const streamRef=useRef<MediaStream|undefined>(undefined),videoRef=useRef<HTMLVideoElement|undefined>(undefined);
+  const cameraRequest=useRef(0);
+  const pointers=useRef(new Map<number,Point>());
+  const drag=useRef<{point:Point;transform:OrnamentTransform}|undefined>(undefined);
+  const gesture=useRef<{distance:number;angle:number;scale:number;rotation:number}|undefined>(undefined);
+  const source=analysis?.source ?? {width:896,height:1200};
+  const allItems=useMemo(()=>[ornament,...layeredOrnaments.filter(item=>item.bodyPartTarget===ornament.bodyPartTarget && item.id!==ornament.id)],[ornament,layeredOrnaments]);
+  const transformFor=useCallback((item:JewelryItem)=>transforms[item.id] ?? defaultTransform(item),[transforms]);
+  const change=(patch:Partial<OrnamentTransform>)=>setTransforms(previous=>({...previous,[ornament.id]:{...(previous[ornament.id] ?? defaultTransform(ornament)),...patch}}));
+  useEffect(()=>{
+    if(!canvasRef.current)return;
+    const renderer=new TryOnRenderer(canvasRef.current);rendererRef.current=renderer;
+    const resize=()=>{const rect=stageRef.current?.getBoundingClientRect();if(rect)renderer.resize(rect.width,rect.height);};
+    resize();const observer=new ResizeObserver(resize);if(stageRef.current)observer.observe(stageRef.current);
+    return ()=>{observer.disconnect();renderer.dispose();rendererRef.current=undefined;};
+  },[]);
+  const releaseCamera=useCallback(()=>{
+    ++cameraRequest.current;
+    rendererRef.current?.stopVideo();streamRef.current?.getTracks().forEach(track=>track.stop());streamRef.current=undefined;
+    videoRef.current?.pause();videoRef.current=undefined;
+  },[]);
+  const stopLive=useCallback(()=>{releaseCamera();setLive(false);setLiveStatus('');setAnalysis(null);},[releaseCamera]);
+  useEffect(()=>{stopLive();setTransforms({});setCalibrations({});setCalibrating(false);setFitPoints([]);},[photo.url,targetCategory,stopLive]);
+  useEffect(()=>()=>releaseCamera(),[releaseCamera]);
+  useEffect(()=>{setCalibrating(false);setFitPoints([]);pointers.current.clear();},[ornament.category]);
+  useEffect(()=>{
+    if(live)return;
+    let active=true;setAnalysis(null);
+    const img=new Image();img.crossOrigin='anonymous';
+    img.onload=async()=>{
+      if(!active)return;
+      await rendererRef.current?.setBackground(photo.url);
+      if(!active)return;
+      const result=await analyseBody(img,img.naturalWidth,img.naturalHeight,targetCategory);
+      if(active)setAnalysis(result);
     };
-  }, [photo.url, ornament, layeredOrnaments, settings, isComparingSplit, splitPosition]);
-
-  // Draw ornament item with 3D Anatomical Draping and Occlusion
-  const drawOrnamentItem = async (
-    ctx: CanvasRenderingContext2D,
-    baseImg: HTMLImageElement,
-    width: number,
-    height: number,
-    item: JewelryItem,
-    itemSettings: TryOnSettings,
-    isPrimary: boolean
-  ) => {
-    const ornCanvas = await getJewelryCutoutCanvas(item.imageUrl);
-    if (!ornCanvas || ornCanvas.width === 0) return;
-
-    ctx.save();
-
-    // Anatomical base anchor taking into account AI auto-fit or catalog defaults
-    const activeXPercent = isPrimary && typeof itemSettings.overrideXPercent === 'number'
-      ? itemSettings.overrideXPercent
-      : item.defaultPlacement.xPercent;
-    const activeYPercent = isPrimary && typeof itemSettings.overrideYPercent === 'number'
-      ? itemSettings.overrideYPercent
-      : item.defaultPlacement.yPercent;
-
-    const baseX = (width * activeXPercent) / 100 + (isPrimary ? itemSettings.xOffset : 0);
-    const baseY = (height * activeYPercent) / 100 + (isPrimary ? itemSettings.yOffset : 0);
-
-    // Anatomically calibrated width multipliers based on ornament type
-    let naturalWidthRatio = 0.52;
-    if (isPrimary && typeof itemSettings.overrideWidthRatio === 'number') {
-      naturalWidthRatio = itemSettings.overrideWidthRatio;
-    } else if (item.category === 'necklace') naturalWidthRatio = 0.52;
-    else if (item.category === 'choker') naturalWidthRatio = 0.40;
-    else if (item.category === 'earrings') naturalWidthRatio = 0.13;
-    else if (item.category === 'ring') naturalWidthRatio = 0.16;
-    else if (item.category === 'bangles') naturalWidthRatio = 0.34;
-    else if (item.category === 'maang_tikka') naturalWidthRatio = 0.15;
-
-    const ornWidth = width * naturalWidthRatio * itemSettings.scale;
-    const aspectRatio = ornCanvas.height / (ornCanvas.width || 1);
-    const ornHeight = ornWidth * aspectRatio;
-
-    if (item.category === 'necklace' || item.category === 'choker') {
-      // 3D Catenary Neck Drape: curves gracefully below chin over clavicles
-      renderNecklace3DDrape(
-        ctx,
-        ornCanvas,
-        baseImg,
-        baseX,
-        baseY,
-        ornWidth,
-        ornHeight,
-        itemSettings.rotation,
-        itemSettings
-      );
-    } else if (item.category === 'ring') {
-      // Ring going AROUND the finger
-      renderRingFingerWrap(
-        ctx,
-        ornCanvas,
-        baseImg,
-        baseX,
-        baseY,
-        ornWidth,
-        ornHeight,
-        itemSettings.rotation,
-        itemSettings,
-        width,
-        height
-      );
-    } else if (item.category === 'bangles') {
-      // Bangle wrapping around wrist cross-section
-      renderBangleWristWrap(
-        ctx,
-        ornCanvas,
-        baseImg,
-        baseX,
-        baseY,
-        ornWidth,
-        ornHeight,
-        itemSettings.rotation,
-        itemSettings,
-        width,
-        height
-      );
-    } else if (item.category === 'earrings') {
-      // Single isolated earring canvas to prevent duplicating pairs
-      const singleEarringCanvas = await getSingleEarringCanvas(item.imageUrl);
-      const earAspect = singleEarringCanvas.height / (singleEarringCanvas.width || 1);
-      const earSize = ornWidth * (itemSettings.sizeRatio || 1.0);
-      const earHeight = earSize * earAspect;
-      const earPOV = itemSettings.visibleEar || 'left';
-
-      // Use AI detected earlobe coordinates if available, otherwise anchor defaults
-      const leftEarlobeX = (width * (activeXPercent || 27)) / 100 + (isPrimary ? itemSettings.xOffset : 0);
-      const earlobeY = (height * (activeYPercent || 47)) / 100 + (isPrimary ? itemSettings.yOffset : 0);
-      const rightEarlobeX = width - leftEarlobeX; // Symmetrical projection for right earlobe
-
-      if (earPOV === 'left') {
-        renderSingleOrnament(ctx, singleEarringCanvas, leftEarlobeX, earlobeY, earSize, earHeight, itemSettings.rotation, itemSettings);
-      } else if (earPOV === 'right') {
-        renderSingleOrnament(ctx, singleEarringCanvas, rightEarlobeX, earlobeY, earSize, earHeight, -itemSettings.rotation, itemSettings);
-      } else {
-        renderSingleOrnament(ctx, singleEarringCanvas, leftEarlobeX, earlobeY, earSize, earHeight, itemSettings.rotation, itemSettings);
-        renderSingleOrnament(ctx, singleEarringCanvas, rightEarlobeX, earlobeY, earSize, earHeight, -itemSettings.rotation, itemSettings);
+    img.onerror=()=>{if(active)setLiveStatus('Photo could not be loaded. Please choose another photo.');};
+    img.src=photo.url;
+    return ()=>{active=false;};
+  },[photo.url,targetCategory,live]);
+  useEffect(()=>{
+    // Suppress old body fits while the next photo is being analysed.
+    const items=analysis && analysis.target===ornament.bodyPartTarget && (!live || analysis.status==='tracking') ? allItems : [];
+    rendererRef.current?.render(items.map(item=>({item,transform:transformFor(item),calibration:calibrations[item.category]})),analysis);
+  },[allItems,analysis,transformFor,ornament.bodyPartTarget,calibrations,live]);
+  useEffect(()=>{
+    if(!live)return;
+    let active=true,timer:number|undefined,previous:BodyAnalysis|null=null;
+    const track=async()=>{
+      const video=videoRef.current;if(!active||!video?.videoWidth)return;
+      const result=await analyseBody(video,video.videoWidth,video.videoHeight,targetCategory);
+      if(!active)return;
+      if(previous?.landmarks && result.landmarks && previous.landmarks.length===result.landmarks.length) {
+        result.landmarks=result.landmarks.map((p,i)=>({x:previous!.landmarks![i].x*.4+p.x*.6,y:previous!.landmarks![i].y*.4+p.y*.6,z:p.z}));
       }
-    } else {
-      // Maang Tikka: forehead nethi chutti
-      const tikkaW = ornWidth * (itemSettings.sizeRatio || 1.0);
-      const tikkaH = tikkaW * aspectRatio;
-      renderSingleOrnament(ctx, ornCanvas, baseX, baseY, tikkaW, tikkaH, itemSettings.rotation, itemSettings);
+      previous=result;setAnalysis(result);setLiveStatus(result.message);
+      timer=window.setTimeout(track,120);
+    };
+    track();return ()=>{active=false;window.clearTimeout(timer);};
+  },[live,targetCategory]);
+  const startLive=async()=>{
+    const request=++cameraRequest.current;setLiveStatus('Opening camera…');
+    try{
+      const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:960},height:{ideal:1280}},audio:false});
+      if(request!==cameraRequest.current){stream.getTracks().forEach(t=>t.stop());return;}
+      streamRef.current=stream;
+      const video=document.createElement('video');video.playsInline=true;video.muted=true;video.srcObject=stream;await video.play();
+      if(request!==cameraRequest.current){stream.getTracks().forEach(t=>t.stop());return;}
+      videoRef.current=video;setAnalysis(null);setCalibrations({});setCalibrating(false);setFitPoints([]);rendererRef.current?.setVideo(video);setLive(true);setCompare(false);
+    }catch{if(request===cameraRequest.current){releaseCamera();setLiveStatus('Camera unavailable. You can still use a photo.');}}
+  };
+  const eventPoint=(event:React.PointerEvent<HTMLCanvasElement>)=>{
+    const rect=event.currentTarget.getBoundingClientRect();
+    return viewportToPhoto({x:event.clientX-rect.left,y:event.clientY-rect.top},source,{width:rect.width,height:rect.height});
+  };
+  const gestureMetrics=(a:Point,b:Point)=>({distance:Math.hypot((a.x-b.x)*source.width,(a.y-b.y)*source.height),angle:Math.atan2((b.y-a.y)*source.height,(b.x-a.x)*source.width)});
+  const pointer=(event:React.PointerEvent<HTMLCanvasElement>)=>{
+    const point=eventPoint(event);
+    if(calibrating){
+      if(point.x<0||point.x>1||point.y<0||point.y>1)return;
+      const points=[...fitPoints,point];
+      if(points.length===2){
+        if(gestureMetrics(points[0],points[1]).distance<10)return;
+        points.sort((a,b)=>a.x-b.x);
+        setCalibrations(previous=>({...previous,[ornament.category]:{primary:points[0],secondary:points[1]}}));
+        change(defaultTransform(ornament));setCalibrating(false);setFitPoints([]);
+      }else setFitPoints(points);
+      return;
     }
-
-    ctx.restore();
+    pointers.current.set(event.pointerId,point);event.currentTarget.setPointerCapture(event.pointerId);
+    drag.current={point,transform:transformFor(ornament)};
+    const values=[...pointers.current.values()];
+    if(values.length===2)gesture.current={...gestureMetrics(values[0],values[1]),scale:transformFor(ornament).scale,rotation:transformFor(ornament).rotation};
   };
-
-  const renderSingleOrnament = (
-    ctx: CanvasRenderingContext2D,
-    drawable: CanvasImageSource,
-    x: number,
-    y: number,
-    w: number,
-    h: number,
-    rotDeg: number,
-    conf: TryOnSettings
-  ) => {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate((rotDeg * Math.PI) / 180);
-
-    ctx.globalAlpha = conf.opacity;
-    ctx.globalCompositeOperation = conf.blendMode;
-
-    if (conf.shadowIntensity > 0) {
-      ctx.shadowColor = `rgba(0, 0, 0, ${conf.shadowIntensity * 0.75})`;
-      ctx.shadowBlur = 8 * conf.scale;
-      ctx.shadowOffsetY = 4 * conf.scale;
-    }
-
-    const brightness = Math.round(conf.goldLuster * 100);
-    ctx.filter = `brightness(${brightness}%) contrast(106%)`;
-
-    ctx.drawImage(drawable, -w / 2, -h / 2, w, h);
-    ctx.restore();
+  const move=(event:React.PointerEvent<HTMLCanvasElement>)=>{
+    if(!pointers.current.has(event.pointerId))return;
+    pointers.current.set(event.pointerId,eventPoint(event));const values=[...pointers.current.values()];
+    if(values.length===1 && drag.current){const start=drag.current;change({x:start.transform.x+values[0].x-start.point.x,y:start.transform.y-(values[0].y-start.point.y)});}
+    else if(values.length===2 && gesture.current){const metrics=gestureMetrics(values[0],values[1]);const start=gesture.current;const delta=Math.atan2(Math.sin(metrics.angle-start.angle),Math.cos(metrics.angle-start.angle));change({scale:Math.max(.35,Math.min(2.5,start.scale*metrics.distance/Math.max(1,start.distance))),rotation:start.rotation+delta*180/Math.PI});}
   };
-
-  useEffect(() => {
-    renderCanvas();
-  }, [renderCanvas]);
-
-  // Pointer dragging
-  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (isComparingSplit) return;
-    setIsDraggingOrnament(true);
-    setDragStart({ x: e.clientX - settings.xOffset, y: e.clientY - settings.yOffset });
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  const release=(event:React.PointerEvent<HTMLCanvasElement>)=>{
+    pointers.current.delete(event.pointerId);gesture.current=undefined;
+    const point=[...pointers.current.values()][0];drag.current=point?{point,transform:transformFor(ornament)}:undefined;
   };
+  const exportImage=()=>{const data=rendererRef.current?.export();if(!data)return;const anchor=document.createElement('a');anchor.download=`${ornament.code}.png`;anchor.href=data;anchor.click();};
+  const trackingTone:Record<TrackingState,string>={tracking:'text-emerald-300','adjustment-needed':'text-amber-300',unavailable:'text-rose-300'};
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!isDraggingOrnament) return;
-    const newX = e.clientX - dragStart.x;
-    const newY = e.clientY - dragStart.y;
-    setSettings((prev) => ({
-      ...prev,
-      xOffset: Math.max(-250, Math.min(250, newX)),
-      yOffset: Math.max(-250, Math.min(250, newY)),
-    }));
-  };
-
-  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    setIsDraggingOrnament(false);
-    try {
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {}
-  };
-
-  const handleDownloadSnapshot = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const exportCanvas = document.createElement('canvas');
-    exportCanvas.width = canvas.width;
-    exportCanvas.height = canvas.height + 80;
-    const expCtx = exportCanvas.getContext('2d');
-    if (!expCtx) return;
-
-    expCtx.drawImage(canvas, 0, 0);
-
-    expCtx.fillStyle = '#3A060C';
-    expCtx.fillRect(0, canvas.height, canvas.width, 80);
-    expCtx.fillStyle = '#D4AF37';
-    expCtx.fillRect(0, canvas.height, canvas.width, 3);
-
-    expCtx.fillStyle = '#F5D061';
-    expCtx.font = 'bold 18px Cinzel, serif';
-    expCtx.fillText('GRT JEWELLERS', 20, canvas.height + 32);
-
-    expCtx.fillStyle = '#FAF6EE';
-    expCtx.font = '12px sans-serif';
-    expCtx.fillText(`${ornament.name} • ${ornament.code}`, 20, canvas.height + 54);
-
-    expCtx.textAlign = 'right';
-    expCtx.fillStyle = '#FFFFFF';
-    expCtx.font = 'bold 18px sans-serif';
-    expCtx.fillText(`₹${ornament.price.toLocaleString('en-IN')}`, canvas.width - 20, canvas.height + 42);
-
-    const link = document.createElement('a');
-    link.download = `GRT-${ornament.code}.png`;
-    link.href = exportCanvas.toDataURL('image/png');
-    link.click();
-  };
-
-  return (
-    <div className="bg-[#190609] border border-[#540813] rounded-2xl overflow-hidden shadow-2xl relative">
-      {/* Top Bar with AI Auto-Fit & 3D Drape Toggle */}
-      <div className="bg-[#2E070C] px-3 py-2 border-b border-[#540813] flex items-center justify-between text-xs">
-        <div className="flex items-center gap-2">
-          <span className="font-mono font-bold text-[#F5D061] text-xs">{ornament.code}</span>
-          <span className="text-stone-300 text-[11px] truncate max-w-[120px]">{ornament.name}</span>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          {/* AI Auto-Placement button */}
-          <button
-            id="ai-auto-place-btn"
-            type="button"
-            onClick={() => triggerAiAutoPlacement(ornament)}
-            disabled={isAiPositioning}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#540813] hover:bg-[#6E0B1A] border border-[#D4AF37]/40 text-[#F5D061] text-[11px] font-semibold transition-all shadow-xs"
-            title="AI Accurately Calculates Size Ratio & 3D Draping"
-          >
-            <Sparkles className="w-3 h-3 text-[#F5D061]" />
-            <span>{isAiPositioning ? 'Fitting...' : 'AI Auto-Fit'}</span>
-          </button>
-
-          {/* 3D Drape / Wrap Toggle */}
-          <button
-            id="3d-wrap-toggle-btn"
-            type="button"
-            onClick={() => setSettings((s) => ({ ...s, wrapOcclusionEnabled: !s.wrapOcclusionEnabled }))}
-            className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border transition-all ${
-              settings.wrapOcclusionEnabled
-                ? 'bg-[#D4AF37]/20 border-[#D4AF37] text-[#F5D061]'
-                : 'bg-[#150508] border-[#540813] text-stone-300'
-            }`}
-            title="Toggle 3D anatomical draping and finger/neck occlusion wrapping"
-          >
-            <Layers className="w-3 h-3" />
-            <span>{settings.wrapOcclusionEnabled ? '3D Wrap ON' : '3D Wrap OFF'}</span>
-          </button>
-
-          {/* Click Selfie button */}
-          <button
-            id="canvas-selfie-btn"
-            type="button"
-            onClick={onOpenSelfieModal}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#D4AF37] hover:bg-[#E5C06E] text-[#3D040C] font-bold text-[11px] transition-all"
-          >
-            <Camera className="w-3 h-3" />
-            <span>Selfie</span>
-          </button>
-
-          {/* Compare */}
-          <button
-            type="button"
-            onClick={() => setIsComparingSplit(!isComparingSplit)}
-            className={`p-1.5 rounded-lg border text-stone-300 ${
-              isComparingSplit ? 'bg-[#D4AF37] text-[#3D040C] border-[#D4AF37]' : 'bg-[#150508] border-[#540813]'
-            }`}
-            title="Split Compare"
-          >
-            <SplitSquareVertical className="w-3 h-3" />
-          </button>
-        </div>
-      </div>
-
-      {/* Canvas Viewport */}
-      <div
-        ref={containerRef}
-        className="relative bg-black aspect-[3/4] max-h-[500px] w-full flex items-center justify-center overflow-hidden select-none cursor-grab active:cursor-grabbing"
-      >
-        <canvas
-          ref={canvasRef}
-          onPointerDown={handlePointerDown}
-          onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          className="w-full h-full object-contain touch-none"
-        />
-
-        {/* 3D Anatomical Mode Notification Badge */}
-        {settings.wrapOcclusionEnabled && (
-          <div className="absolute top-2.5 left-2.5 bg-black/75 backdrop-blur-xs border border-[#D4AF37]/40 rounded-xl px-2.5 py-1 flex items-center gap-1.5 text-[10px] text-[#F5D061] pointer-events-none">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-            <span>
-              {ornament.category === 'ring'
-                ? '3D Finger Wrap • Rear band behind finger, crown on top'
-                : ornament.category === 'necklace' || ornament.category === 'choker'
-                ? '3D Collarbone Drape • Curved below chin over clavicles'
-                : ornament.category === 'bangles'
-                ? '3D Bangle Wrap • Wrist inside kada circle'
-                : '3D Anatomical Fit Active'}
-            </span>
-          </div>
-        )}
-
-        {/* POV Notice when Earring is selected */}
-        {ornament.category === 'earrings' && (
-          <div className="absolute top-2.5 right-2.5 bg-black/75 backdrop-blur-xs border border-[#D4AF37]/40 rounded-xl p-1 flex items-center gap-1 text-[10px]">
-            <span className="text-stone-300 px-1 font-medium">POV:</span>
-            {(['left', 'right', 'both'] as const).map((pov) => (
-              <button
-                key={pov}
-                type="button"
-                onClick={() => setSettings((s) => ({ ...s, visibleEar: pov }))}
-                className={`px-2 py-0.5 rounded-md uppercase font-semibold transition-all ${
-                  (settings.visibleEar || 'left') === pov
-                    ? 'bg-[#D4AF37] text-[#3D040C]'
-                    : 'text-stone-300 hover:text-white'
-                }`}
-              >
-                {pov === 'left' ? 'Left Ear' : pov === 'right' ? 'Right Ear' : 'Both'}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* AI Status Badge */}
-        {aiStatusMsg && (
-          <div className="absolute bottom-3 left-3 bg-[#24080D]/95 border border-[#D4AF37]/60 text-[#F5D061] text-[10px] px-2.5 py-1 rounded-lg flex items-center gap-1.5 shadow-lg">
-            <Check className="w-3 h-3 text-emerald-400" />
-            <span>{aiStatusMsg}</span>
-          </div>
-        )}
-
-        {/* Split slider */}
-        {isComparingSplit && (
-          <div className="absolute bottom-3 inset-x-6 z-20 bg-[#1F0A0E]/90 border border-[#D4AF37]/40 p-2 rounded-xl flex items-center gap-2">
-            <span className="text-[10px] text-stone-300 font-medium">Original</span>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={splitPosition}
-              onChange={(e) => setSplitPosition(Number(e.target.value))}
-              className="w-full accent-[#D4AF37] cursor-ew-resize"
-            />
-            <span className="text-[10px] text-[#F5D061] font-bold">Try-On</span>
-          </div>
-        )}
-      </div>
-
-      {/* Biometric Fit & 3D Drape Fine-Tuning Drawer */}
-      {showTuningDrawer && (
-        <div className="bg-[#1D0609] border-t border-[#540813] px-3.5 py-2.5 space-y-2 text-xs">
-          <div className="flex items-center justify-between text-[11px] text-[#E5C06E] font-semibold border-b border-[#540813]/60 pb-1">
-            <span>Biometric Fit & 3D Draping Controls</span>
-            <span className="text-stone-400 font-normal">
-              {Math.round((settings.sizeRatio || 1.0) * 100)}% Person:Ornament Ratio
-            </span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
-            {/* Size Ratio Slider */}
-            <div className="space-y-1">
-              <div className="flex justify-between text-stone-300 text-[10px]">
-                <span>Person Size Ratio (Anatomy : Ornament)</span>
-                <span className="text-[#F5D061] font-mono">{Math.round((settings.sizeRatio || 1.0) * 100)}%</span>
-              </div>
-              <input
-                type="range"
-                min="70"
-                max="135"
-                value={Math.round((settings.sizeRatio || 1.0) * 100)}
-                onChange={(e) =>
-                  setSettings((s) => ({ ...s, sizeRatio: Number(e.target.value) / 100 }))
-                }
-                className="w-full accent-[#D4AF37] h-1.5 bg-[#3A0A10] rounded-lg cursor-pointer"
-              />
-            </div>
-
-            {/* Category-Specific Draping Slider */}
-            {ornament.category === 'necklace' || ornament.category === 'choker' ? (
-              <div className="space-y-1">
-                <div className="flex justify-between text-stone-300 text-[10px]">
-                  <span>Neck Catenary Drape Sag</span>
-                  <span className="text-[#F5D061] font-mono">{settings.drapeCurvature}px</span>
-                </div>
-                <input
-                  type="range"
-                  min="0"
-                  max="30"
-                  value={settings.drapeCurvature}
-                  onChange={(e) =>
-                    setSettings((s) => ({ ...s, drapeCurvature: Number(e.target.value) }))
-                  }
-                  className="w-full accent-[#D4AF37] h-1.5 bg-[#3A0A10] rounded-lg cursor-pointer"
-                />
-              </div>
-            ) : ornament.category === 'ring' ? (
-              <div className="space-y-1">
-                <div className="flex justify-between text-stone-300 text-[10px]">
-                  <span>Finger Occlusion Width</span>
-                  <span className="text-[#F5D061] font-mono">{settings.fingerOcclusionWidth}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="8"
-                  max="24"
-                  value={settings.fingerOcclusionWidth}
-                  onChange={(e) =>
-                    setSettings((s) => ({ ...s, fingerOcclusionWidth: Number(e.target.value) }))
-                  }
-                  className="w-full accent-[#D4AF37] h-1.5 bg-[#3A0A10] rounded-lg cursor-pointer"
-                />
-              </div>
-            ) : (
-              <div className="space-y-1">
-                <div className="flex justify-between text-stone-300 text-[10px]">
-                  <span>Gold Surface Luster</span>
-                  <span className="text-[#F5D061] font-mono">{Math.round(settings.goldLuster * 100)}%</span>
-                </div>
-                <input
-                  type="range"
-                  min="80"
-                  max="130"
-                  value={Math.round(settings.goldLuster * 100)}
-                  onChange={(e) =>
-                    setSettings((s) => ({ ...s, goldLuster: Number(e.target.value) / 100 }))
-                  }
-                  className="w-full accent-[#D4AF37] h-1.5 bg-[#3A0A10] rounded-lg cursor-pointer"
-                />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Streamlined Controls */}
-      <div className="bg-[#24080D] p-2.5 border-t border-[#540813] flex items-center justify-between">
-        {/* Scale */}
-        <div className="flex items-center bg-[#150508] rounded-xl border border-[#540813] p-0.5">
-          <button
-            type="button"
-            onClick={() => setSettings((s) => ({ ...s, scale: Math.max(0.3, s.scale - 0.08) }))}
-            className="p-1.5 text-stone-300 hover:text-white"
-          >
-            <ZoomOut className="w-3.5 h-3.5" />
-          </button>
-          <span className="text-[11px] font-mono px-2 text-[#E5C06E]">
-            {Math.round(settings.scale * 100)}%
-          </span>
-          <button
-            type="button"
-            onClick={() => setSettings((s) => ({ ...s, scale: Math.min(2.5, s.scale + 0.08) }))}
-            className="p-1.5 text-stone-300 hover:text-white"
-          >
-            <ZoomIn className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Drape & Fit Tuner Toggle Button */}
-          <button
-            type="button"
-            onClick={() => setShowTuningDrawer(!showTuningDrawer)}
-            className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all ${
-              showTuningDrawer
-                ? 'bg-[#D4AF37] text-[#3D040C] border-[#D4AF37]'
-                : 'bg-[#150508] border-[#540813] text-stone-300 hover:text-white'
-            }`}
-            title="Adjust Biometric Proportion & Drape Curve"
-          >
-            <Sliders className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Drape & Fit</span>
-          </button>
-
-          {/* Reset */}
-          <button
-            type="button"
-            onClick={() => {
-              setSettings((s) => ({
-                ...s,
-                xOffset: 0,
-                yOffset: 0,
-                overrideXPercent: ornament.defaultPlacement.xPercent,
-                overrideYPercent: ornament.defaultPlacement.yPercent,
-                overrideWidthRatio: undefined,
-                scale: ornament.defaultPlacement.scale,
-                rotation: ornament.defaultPlacement.rotation,
-                sizeRatio: 1.0,
-                drapeCurvature: ornament.category === 'necklace' ? 12 : ornament.category === 'choker' ? 6 : 0,
-                wrapOcclusionEnabled: true,
-              }));
-            }}
-            className="p-2 rounded-xl bg-[#150508] border border-[#540813] text-stone-300 hover:text-white"
-            title="Reset"
-          >
-            <RefreshCcw className="w-3.5 h-3.5 text-[#D4AF37]" />
-          </button>
-
-          {/* Download Snapshot */}
-          <button
-            type="button"
-            onClick={handleDownloadSnapshot}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#6B0E1D] hover:bg-[#851224] border border-[#D4AF37]/40 text-white text-xs font-semibold"
-            title="Download Look"
-          >
-            <Download className="w-3.5 h-3.5 text-[#F5D061]" />
-            <span>Save</span>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+  return <section className="overflow-hidden rounded-3xl border border-[#6a1825] bg-[#190609] shadow-2xl">
+    <div className="flex items-center justify-between gap-2 border-b border-[#5a111c] bg-[#28080e] px-3 py-2.5"><div className="min-w-0"><p className="truncate font-mono text-xs font-bold text-[#f5d061]">{ornament.code}</p><p className="truncate text-[11px] text-stone-300">{ornament.name}</p></div><div className="flex gap-1"><button onClick={() => setCompare(!compare)} className="touch-button" aria-label="Compare original"><SplitSquareVertical size={17}/></button><button onClick={live ? stopLive : startLive} className={`touch-button ${live ? 'bg-[#d4af37] text-[#30040a]' : ''}`} aria-label="Toggle live camera">{live ? <VideoOff size={17}/> : <Video size={17}/>}</button><button onClick={onOpenSelfieModal} className="touch-button" aria-label="Take a photo"><Camera size={17}/></button></div></div>
+    <div ref={stageRef} className="relative aspect-[3/4] bg-black"><canvas ref={canvasRef} onPointerDown={pointer} onPointerMove={move} onPointerUp={release} onPointerCancel={release} onLostPointerCapture={release} aria-label="Jewelry try-on; use fit controls to adjust" className="h-full w-full touch-none" />{calibrating && <><svg className="pointer-events-none absolute inset-0 h-full w-full" viewBox={`0 0 ${source.width} ${source.height}`} preserveAspectRatio="xMidYMid meet">{fitPoints.map((p,i)=><circle key={i} cx={p.x*source.width} cy={p.y*source.height} r={source.width*.012} fill="#f5d061" stroke="#000" strokeWidth={2}/>)}</svg><div role="status" className="pointer-events-none absolute bottom-3 left-3 right-3 rounded-xl bg-black/85 p-3 text-xs text-[#f5d061]">{calibrationHint} {fitPoints.length}/2 points set.</div></>}{compare && !live && <><div className="pointer-events-none absolute inset-0" style={{ clipPath: `inset(0 ${100-split}% 0 0)` }}><img src={photo.url} alt="Original photo" className="h-full w-full object-contain" /></div><div className="pointer-events-none absolute inset-y-0 left-0 border-r-2 border-[#f5d061]" style={{ width: `${split}%`, boxShadow: '12px 0 35px rgba(0,0,0,.32)' }} /><input aria-label="Comparison position" className="absolute bottom-4 left-6 right-6 w-[calc(100%-3rem)] accent-[#d4af37]" type="range" value={split} onChange={e => setSplit(Number(e.target.value))}/></>}<div className={`pointer-events-none absolute left-3 top-3 rounded-full bg-black/70 px-2.5 py-1 text-[10px] ${trackingTone[analysis?.status ?? 'adjustment-needed']}`}>{liveStatus || analysis?.message || 'Fitting locally…'}</div></div>
+    <div className="flex items-center justify-between gap-2 border-t border-[#5a111c] bg-[#24080d] p-2.5"><div className="flex rounded-xl border border-[#5a111c] bg-[#150508]"><button className="touch-button" aria-label="Decrease ornament size" onClick={() => change({ scale: Math.max(.35, transformFor(ornament).scale-.08) })}><ZoomOut size={17}/></button><span className="flex min-w-12 items-center justify-center font-mono text-xs text-[#f5d061]">{Math.round(transformFor(ornament).scale*100)}%</span><button className="touch-button" aria-label="Increase ornament size" onClick={() => change({ scale: Math.min(2.5, transformFor(ornament).scale+.08) })}><ZoomIn size={17}/></button></div><div className="flex gap-1"><button className={`touch-button ${showFit ? 'bg-[#d4af37] text-[#30040a]' : ''}`} onClick={() => setShowFit(!showFit)} aria-label="Fit controls"><SlidersHorizontal size={17}/></button><button className="touch-button" onClick={exportImage} aria-label="Export try-on"><Download size={17}/></button><button className="touch-button" onClick={() => { change(defaultTransform(ornament)); setCalibrations(previous=>{const next={...previous};delete next[ornament.category];return next;}); setCalibrating(false); setFitPoints([]); }} aria-label="Reset fit"><RefreshCcw size={17}/></button></div></div>
+    {showFit && <div className="grid grid-cols-2 gap-3 border-t border-[#5a111c] bg-[#1b060a] p-3 text-xs">{canCalibrate && !live && <button className="col-span-2 min-h-11 rounded-lg border border-[#d4af37]/60 px-3 text-[#f5d061]" onClick={()=>{setCalibrating(!calibrating);setFitPoints([]);setCompare(false);}}>{calibrating?'Cancel fit points':'Set two fit points'}</button>}<label className="space-y-1 text-stone-300">Opacity<input className="w-full accent-[#d4af37]" type="range" min="30" max="100" value={Math.round(transformFor(ornament).opacity*100)} onChange={e => change({ opacity: Number(e.target.value)/100 })}/></label><label className="space-y-1 text-stone-300">Rotation<input aria-label="Ornament rotation" className="w-full accent-[#d4af37]" type="range" min="-180" max="180" value={transformFor(ornament).rotation} onChange={e=>change({rotation:Number(e.target.value)})}/></label><label className="space-y-1 text-stone-300">Horizontal position<input aria-label="Horizontal position" className="w-full accent-[#d4af37]" type="range" min="-.4" max=".4" step=".002" value={transformFor(ornament).x} onChange={e=>change({x:Number(e.target.value)})}/></label><label className="space-y-1 text-stone-300">Vertical position<input aria-label="Vertical position" className="w-full accent-[#d4af37]" type="range" min="-.4" max=".4" step=".002" value={-transformFor(ornament).y} onChange={e=>change({y:-Number(e.target.value)})}/></label><p className="col-span-2 text-[11px] text-stone-400">Drag to move. Pinch to resize and twist to rotate. Reset restores the automatic fit. Size is estimated from body proportions.{ornament.asset?.renderMode==='procedural-3d'?' Band design is an illustrative 3D preview.':''}</p></div>}
+    {layeredOrnaments.length > 0 && <div className="border-t border-[#5a111c] bg-[#190609] p-3"><div className="mb-2 flex items-center gap-1 text-xs font-semibold text-[#f5d061]"><Layers size={14}/> Layered pieces</div><div className="flex gap-2 overflow-x-auto">{allItems.map(item => <button key={item.id} onClick={() => setTransforms(s => ({ ...s, [item.id]: { ...transformFor(item), visible: !transformFor(item).visible } }))} className={`min-h-11 shrink-0 rounded-lg border px-3 text-xs ${transformFor(item).visible ? 'border-[#d4af37] text-[#f5d061]' : 'border-[#5a111c] text-stone-500'}`}>{item.code}</button>)}</div></div>}
+  </section>;
 };

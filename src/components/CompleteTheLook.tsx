@@ -17,7 +17,7 @@ export const CompleteTheLook: React.FC<CompleteTheLookProps> = ({
   layeredOrnaments,
   onToggleLayer,
 }) => {
-  const { recommendations, matchScore } = useMemo(() => {
+  const { recommendations } = useMemo(() => {
     let matches: JewelryItem[] = [];
     if (currentOrnament.matchingCodes && currentOrnament.matchingCodes.length > 0) {
       matches = catalog.filter((i) => currentOrnament.matchingCodes?.includes(i.code));
@@ -33,8 +33,7 @@ export const CompleteTheLook: React.FC<CompleteTheLookProps> = ({
       matches = Array.from(new Set([...matches, ...complementary])).slice(0, 3);
     }
 
-    const matchScore = 96 + ((currentOrnament.price % 4) + 1);
-    return { recommendations: matches, matchScore };
+    return { recommendations: matches };
   }, [currentOrnament, catalog]);
 
   if (recommendations.length === 0) return null;
@@ -46,9 +45,6 @@ export const CompleteTheLook: React.FC<CompleteTheLookProps> = ({
         <div className="flex items-center gap-2">
           <Sparkles className="w-4 h-4 text-[#F5D061]" />
           <h3 className="font-serif font-bold text-sm text-[#FAF6EE]">Complete The Look</h3>
-          <span className="bg-[#D4AF37]/20 text-[#F5D061] text-[10px] px-2 py-0.5 rounded-full font-bold">
-            {matchScore}% Match
-          </span>
         </div>
         <span className="text-[11px] text-stone-400">Coordinated Suite</span>
       </div>

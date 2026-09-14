@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { Camera, Upload, X, Check, Tag, Sparkles } from 'lucide-react';
+import { Camera, Upload, X, Check, Tag, Sparkles, Wand2 } from 'lucide-react';
 import { JewelryItem, JewelryCategory, BodyPartTarget } from '../types';
+import { prepareUploadedCutout } from '../utils/imageUtils';
 
 interface CustomOrnamentModalProps {
   isOpen: boolean;
@@ -20,16 +21,13 @@ export const CustomOrnamentModal: React.FC<CustomOrnamentModalProps> = ({
   const [weight, setWeight] = useState('32.400 g');
   const [price, setPrice] = useState('245000');
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [feather, setFeather] = useState(18);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   if (!isOpen) return null;
 
-  const handleFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setImagePreview(e.target?.result as string);
-    };
-    reader.readAsDataURL(file);
+  const handleFile = async (file: File) => {
+    setImagePreview(await prepareUploadedCutout(file, feather));
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -60,6 +58,7 @@ export const CustomOrnamentModal: React.FC<CustomOrnamentModalProps> = ({
         rotation: 0,
       },
       bodyPartTarget: bodyPart,
+      asset: { anchors: { primary: { x: .5, y: .5 } }, dimensions: { widthMm: 0, heightMm: 0, estimated: true }, renderMode: 'texture' },
     };
 
     onAddCustomOrnament(newItem);
@@ -107,6 +106,10 @@ export const CustomOrnamentModal: React.FC<CustomOrnamentModalProps> = ({
                 >
                   <X className="w-4 h-4" />
                 </button>
+                <div className="absolute inset-x-3 bottom-3 rounded-lg bg-black/75 p-2 text-[10px] text-stone-200">
+                  <div className="mb-1 flex items-center gap-1 text-[#f5d061]"><Wand2 className="h-3 w-3"/> Local edge feather</div>
+                  <input aria-label="Cutout feather" type="range" min="0" max="40" value={feather} onChange={(e) => setFeather(Number(e.target.value))} className="w-full accent-[#d4af37]" />
+                </div>
               </div>
             ) : (
               <div

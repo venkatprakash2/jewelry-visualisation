@@ -36,26 +36,9 @@ export const AIStylistModal: React.FC<AIStylistModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<AIStylingFeedback | null>(null);
 
-  const fetchAdvice = async (selectedOccasion: string) => {
+  const fetchAdvice = (selectedOccasion: string) => {
     setLoading(true);
-    try {
-      const res = await fetch('/api/tryon/style-advice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          productCode: ornament.code,
-          productName: ornament.name,
-          category: ornament.category,
-          purity: ornament.purity,
-          customerTarget: targetCategory,
-          occasion: selectedOccasion,
-        }),
-      });
-      const data = await res.json();
-      setFeedback(data);
-    } catch (err) {
-      console.error('Stylist advice fetch failed:', err);
-      // Graceful fallback
+    window.setTimeout(() => {
       setFeedback({
         recommendation: `The ${ornament.name} is an exquisite heirloom that graces the neckline with regal South Indian poise.`,
         faceNeckHarmony: `Its curvature sits flush along the clavicle line, elongating the silhouette and highlighting the face.`,
@@ -67,9 +50,8 @@ export const AIStylistModal: React.FC<AIStylistModalProps> = ({
           'Choose sweetheart or traditional round neckline blouses for maximum ornament exposure.',
         ],
       });
-    } finally {
       setLoading(false);
-    }
+    }, 120);
   };
 
   useEffect(() => {
@@ -141,7 +123,7 @@ export const AIStylistModal: React.FC<AIStylistModalProps> = ({
             <div className="py-12 flex flex-col items-center justify-center text-center space-y-3">
               <RefreshCw className="w-8 h-8 text-[#D4AF37] animate-spin" />
               <p className="text-stone-300 text-sm font-medium">
-                Consulting GRT Heritage Gemologist &amp; Draping Specialist...
+                Preparing local catalogue guidance…
               </p>
             </div>
           ) : feedback ? (

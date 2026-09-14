@@ -2,6 +2,33 @@
 const cutoutCache = new Map<string, HTMLCanvasElement>();
 const singleEarringCache = new Map<string, HTMLCanvasElement>();
 
+/** Strip studio padding before sizing. Measurements refer to jewelry, not its backdrop. */
+export function trimTransparent(source: HTMLCanvasElement): HTMLCanvasElement {
+  const context=source.getContext('2d', {willReadFrequently:true});
+  if(!context) return source;
+  const {data}=context.getImageData(0,0,source.width,source.height);
+  let left=source.width,top=source.height,right=-1,bottom=-1;
+  for(let y=0;y<source.height;y++) for(let x=0;x<source.width;x++) {
+    if(data[(y*source.width+x)*4+3]>64) {left=Math.min(left,x);right=Math.max(right,x);top=Math.min(top,y);bottom=Math.max(bottom,y);}
+  }
+  if(right<left) return source;
+  const output=document.createElement('canvas');output.width=right-left+1;output.height=bottom-top+1;
+  output.getContext('2d')?.drawImage(source,left,top,output.width,output.height,0,0,output.width,output.height);
+  return output;
+}
+
+/** A local, background-connected matte for showroom uploads. It never removes dark internal details. */
+export async function prepareUploadedCutout(file: File, feather = 18): Promise<string> {
+  const image = await createImageBitmap(file);
+  const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true }); if (!ctx) return URL.createObjectURL(file);
+  ctx.drawImage(image, 0, 0); const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height); const { data } = pixels;
+  const sample = [0, canvas.width - 1, (canvas.height - 1) * canvas.width, canvas.width * canvas.height - 1].map(index => (data[index * 4] + data[index * 4 + 1] + data[index * 4 + 2]) / 3);
+  const background = sample.reduce((a, b) => a + b, 0) / sample.length; const isLight = background > 160;
+  for (let i = 0; i < data.length; i += 4) { const luminance = .299 * data[i] + .587 * data[i + 1] + .114 * data[i + 2]; const distance = Math.abs(luminance - background); if (distance < feather && (isLight ? luminance > 120 : luminance < 80)) data[i + 3] = Math.round(data[i + 3] * distance / feather); }
+  ctx.putImageData(pixels, 0, 0); return canvas.toDataURL('image/png');
+}
+
 /**
  * Extracts a single isolated earring piece from a studio pair photo (which displays 2 jhumkas side-by-side).
  * This ensures that placing an earring on one earlobe shows exactly 1 earring, not a duplicated pair.
@@ -137,8 +164,9 @@ export async function getJewelryCutoutCanvas(src: string): Promise<HTMLCanvasEle
         ctx.putImageData(imgData, 0, 0);
       }
 
-      cutoutCache.set(src, canvas);
-      resolve(canvas);
+      const trimmed=trimTransparent(canvas);
+      cutoutCache.set(src, trimmed);
+      resolve(trimmed);
     };
 
     img.onerror = () => {

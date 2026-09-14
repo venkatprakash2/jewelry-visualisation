@@ -12,6 +12,9 @@ export default defineConfig(() => {
       },
     },
     server: {
+      // A short-lived HTTPS tunnel is used only for Android camera testing.
+      // Vite otherwise rejects the tunnel hostname before the app can load.
+      allowedHosts: true as const,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
